@@ -47,11 +47,15 @@ interface VaultState {
   /** This deployment can store encrypted image attachments. Unknown (false) while offline. */
   attachments: boolean
   dek: CryptoKey | null
+  /** The note key is kept on this device: no passphrase after a reload, no auto-lock. */
+  remembered: boolean
+  /** Keep (or forget) the unlocked key on this device. */
+  setRemember(on: boolean): Promise<void>
   /** Create a vault and return the recovery code for the user to store. */
   setup(passphrase: string): Promise<string>
   /** Call once the user confirms they saved the recovery code. */
   finishSetup(): void
-  unlock(passphrase: string): Promise<void>
+  unlock(passphrase: string, remember?: boolean): Promise<void>
   recover(code: string, newPassphrase: string): Promise<void>
   changePassphrase(current: string, next: string): Promise<void>
   lock(): void
@@ -67,8 +71,20 @@ export function VaultProvider({ children }: { children: ReactNode }) {
   const [offline, setOffline] = useState(false)
   const [attachments, setAttachments] = useState(false)
   const [dek, setDek] = useState<CryptoKey | null>(null)
+  const [remembered, setRemembered] = useState(false)
   const record = useRef<VaultRecord | null>(null)
   const pendingDek = useRef<CryptoKey | null>(null)
+
+  /** Open straight away with the key kept on this device, if the owner chose to. */
+  const tryRemembered = async (who: string) => {
+    const saved = await localStore.getDeviceKey()
+    if (!saved || saved.email !== who || !(saved.key instanceof CryptoKey)) return false
+    setRemembered(true)
+    setDek(saved.key)
+    setStatus('unlocked')
+    keepOfflineCopy()
+    return true
+  }
 
   useEffect(() => {
     ;(async () => {
@@ -83,7 +99,7 @@ export function VaultProvider({ children }: { children: ReactNode }) {
         if (!me.hasVault) return setStatus('setup')
         record.current = await api.getVault()
         await localStore.setVault(record.current)
-        setStatus('locked')
+        if (!(await tryRemembered(me.email))) setStatus('locked')
       } catch (e) {
         if (e instanceof ApiError) {
           if (e.status !== 401) return setStatus('error')
@@ -97,25 +113,37 @@ export function VaultProvider({ children }: { children: ReactNode }) {
           record.current = vault
           setEmail(cached.email)
           setOffline(true)
-          setStatus('locked')
+          if (!(await tryRemembered(cached.email))) setStatus('locked')
         } else {
           setStatus('offline-empty')
         }
       }
     })()
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  /** Locking on purpose also forgets the key kept on this device. */
   const lock = useCallback(() => {
     setDek(null)
     pendingDek.current = null
+    setRemembered(false)
+    void localStore.setDeviceKey(null)
     setStatus((s) => (s === 'unlocked' ? 'locked' : s))
   }, [])
 
-  // Auto-lock when idle.
+  // Auto-lock when idle, unless the owner chose to stay unlocked on this device.
   useEffect(() => {
-    if (status !== 'unlocked') return
+    if (status !== 'unlocked' || remembered) return
     return watchIdle(IDLE_LOCK_MS, lock)
-  }, [status, lock])
+  }, [status, remembered, lock])
+
+  const setRemember = useCallback(
+    async (on: boolean) => {
+      if (on && dek && email) await localStore.setDeviceKey({ email, key: dek })
+      else await localStore.setDeviceKey(null)
+      setRemembered(on && !!dek)
+    },
+    [dek, email],
+  )
 
   const setup = useCallback(async (passphrase: string) => {
     const created = await createVault(passphrase)
@@ -138,15 +166,18 @@ export function VaultProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
-  const unlock = useCallback(async (passphrase: string) => {
+  const unlock = useCallback(async (passphrase: string, remember = false) => {
     if (!record.current) record.current = await api.getVault()
     const key = await unlockWithPassphrase(record.current, passphrase)
     keepOfflineCopy()
+    // The key is non-extractable: kept in IndexedDB, it can be used here but its bytes can't be read out.
+    if (remember && email) await localStore.setDeviceKey({ email, key })
+    setRemembered(remember && !!email)
     transition(() => {
       setDek(key)
       setStatus('unlocked')
     })
-  }, [])
+  }, [email])
 
   const saveRewrap = useCallback(
     async (secret: { passphrase: string } | { recoveryCode: string }, next: string) => {
@@ -203,7 +234,7 @@ export function VaultProvider({ children }: { children: ReactNode }) {
 
   return (
     <VaultContext.Provider
-      value={{ status, email, offline, attachments, dek, setup, finishSetup, unlock, recover, changePassphrase, lock, signOut }}
+      value={{ status, email, offline, attachments, dek, remembered, setRemember, setup, finishSetup, unlock, recover, changePassphrase, lock, signOut }}
     >
       {children}
     </VaultContext.Provider>
