@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import {
   CalendarDays,
   CalendarPlus,
@@ -25,6 +25,7 @@ import { Input } from '@/components/ui/input'
 import { Segmented } from '@/components/ui/segmented'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
+import { useAutoRefresh } from '@/hooks/useAutoRefresh'
 import { ApiError } from '@/lib/api'
 import { dateLocale, useI18n } from '@/i18n'
 import {
@@ -185,6 +186,9 @@ interface CalEvent extends GEvent {
   canEdit: boolean
 }
 
+/** How often the Calendar and Tasks tabs check Google for changes made elsewhere. */
+const REFRESH_MS = 30_000
+
 const writable = (c: GCalendar) => c.accessRole === 'owner' || c.accessRole === 'writer'
 
 function CalendarView({ query, account, onError, onMakeNote }: ViewProps) {
@@ -227,9 +231,9 @@ function CalendarView({ query, account, onError, onMakeNote }: ViewProps) {
 
   const shown = useMemo(() => (calendars ?? []).filter((c) => !hidden.includes(c.id)), [calendars, hidden])
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (silent = false) => {
     if (!calendars) return
-    setLoading(true)
+    if (!silent) setLoading(true)
     const results = await Promise.allSettled(shown.map((c) => google.events(c.id, range.from, range.to)))
     const all: CalEvent[] = []
     results.forEach((r, i) => {
@@ -239,12 +243,16 @@ function CalendarView({ query, account, onError, onMakeNote }: ViewProps) {
           if (e.status !== 'cancelled') all.push({ ...e, calendarId: c.id, color: c.backgroundColor ?? 'var(--primary)', canEdit: writable(c) })
     })
     const firstError = results.find((r) => r.status === 'rejected') as PromiseRejectedResult | undefined
-    if (firstError) onError(firstError.reason)
+    // A background refresh that fails stays quiet; the next one will try again.
+    if (firstError && !silent) onError(firstError.reason)
+    if (firstError && silent) return
     all.sort((a, b) => eventRange(a).start.getTime() - eventRange(b).start.getTime())
     setEvents(all)
     setLoading(false)
   }, [calendars, shown, range, onError])
   useEffect(() => void reload(), [reload])
+  // Changes made in Google Calendar elsewhere show up on their own.
+  useAutoRefresh(() => void reload(true), REFRESH_MS, !!editing)
 
   const q = query.trim().toLocaleLowerCase()
   const byDay = useMemo(() => {
@@ -688,6 +696,18 @@ function TasksView({ query, account, onError, onMakeNote }: ViewProps) {
   const [title, setTitle] = useState('')
   const [showDone, setShowDone] = useState(false)
   const [editing, setEditing] = useState<GTask | null>(null)
+  /** Changes on their way to Google: a refresh now could undo what the screen already shows. */
+  const inflight = useRef(0)
+  const currentList = useRef(listId)
+  currentList.current = listId
+  const track = async <T,>(p: Promise<T>): Promise<T> => {
+    inflight.current++
+    try {
+      return await p
+    } finally {
+      inflight.current--
+    }
+  }
 
   const setListId = (id: string) => {
     setListIdState(id)
@@ -701,14 +721,28 @@ function TasksView({ query, account, onError, onMakeNote }: ViewProps) {
     }, onError)
   }, [onError])
 
-  const reload = useCallback(() => {
-    if (!listId) return
-    google.tasks(listId).then(setTasks, onError)
-  }, [listId, onError])
+  const reload = useCallback(
+    (silent = false) => {
+      if (!listId) return
+      const id = listId
+      google.tasks(id).then(
+        (list) => {
+          // Skip a background answer that raced with a change made here, or a list switch.
+          if ((silent && inflight.current) || currentList.current !== id) return
+          setTasks(list)
+        },
+        (e) => !silent && onError(e),
+      )
+    },
+    [listId, onError],
+  )
   useEffect(() => {
     setTasks(null)
     reload()
   }, [reload])
+  // Tasks added or ticked in Google Tasks (phone, widget) show up on their own.
+  useAutoRefresh(() => reload(true), REFRESH_MS, !!editing || inflight.current > 0)
+
 
   const q = query.trim().toLocaleLowerCase()
   const { open, done } = useMemo(() => {
@@ -724,7 +758,7 @@ function TasksView({ query, account, onError, onMakeNote }: ViewProps) {
     if (!text || !listId) return
     setTitle('')
     try {
-      const created = await google.createTask(listId, { title: text })
+      const created = await track(google.createTask(listId, { title: text }))
       setTasks((cur) => [created, ...(cur ?? [])])
     } catch (err) {
       setTitle(text)
@@ -736,7 +770,7 @@ function TasksView({ query, account, onError, onMakeNote }: ViewProps) {
     const completed = task.status !== 'completed'
     replace({ ...task, status: completed ? 'completed' : 'needsAction', completed: completed ? new Date().toISOString() : null })
     try {
-      replace(await google.updateTask(listId, task.id, completed ? { status: 'completed' } : { status: 'needsAction', completed: null }))
+      replace(await track(google.updateTask(listId, task.id, completed ? { status: 'completed' } : { status: 'needsAction', completed: null })))
       if (completed)
         toast(t('g.taskDone'), {
           action: { label: t('common.undo'), onClick: () => void toggle({ ...task, status: 'completed' }) },
@@ -763,7 +797,7 @@ function TasksView({ query, account, onError, onMakeNote }: ViewProps) {
     if (!done.length || !window.confirm(t('g.clearDoneConfirm', { n: done.length }))) return
     const ids = new Set(done.map((x) => x.id))
     setTasks((cur) => cur?.filter((x) => !ids.has(x.id)) ?? cur)
-    const results = await Promise.allSettled(done.map((x) => google.deleteTask(listId, x.id)))
+    const results = await track(Promise.allSettled(done.map((x) => google.deleteTask(listId, x.id))))
     if (results.some((r) => r.status === 'rejected')) reload()
   }
 
@@ -791,7 +825,7 @@ function TasksView({ query, account, onError, onMakeNote }: ViewProps) {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <Button variant="ghost" size="icon-sm" aria-label={t('g.refresh')} onClick={reload}>
+        <Button variant="ghost" size="icon-sm" aria-label={t('g.refresh')} onClick={() => reload()}>
           <RefreshCw />
         </Button>
         {account}
