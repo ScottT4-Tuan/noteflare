@@ -25,6 +25,7 @@ import { Input } from '@/components/ui/input'
 import { Segmented } from '@/components/ui/segmented'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
+import { ApiError } from '@/lib/api'
 import { dateLocale, useI18n } from '@/i18n'
 import {
   addDays,
@@ -78,7 +79,10 @@ export function GooglePanel({ kind, query, onMakeNote }: Props) {
         setStatus((s) => (s ? { ...s, connected: false } : s))
         toast.error(t('g.reauth'))
       } else {
-        toast.error(t('g.failed'))
+        // Show what Google said (e.g. "Google Tasks API has not been used in project … or it is disabled").
+        const g = e instanceof ApiError ? (e.body as { error?: { message?: string; status?: string } | string } | null)?.error : null
+        const detail = typeof g === 'string' ? g : g?.message
+        toast.error(t('g.failed'), detail ? { description: detail.slice(0, 300), duration: 15000 } : undefined)
         console.error(e)
       }
     },
