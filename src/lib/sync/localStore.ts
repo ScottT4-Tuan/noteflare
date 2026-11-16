@@ -38,6 +38,9 @@ export interface LocalStore {
   setMeta(patch: Partial<Meta>): Promise<void>
   getVault(): Promise<VaultRecord | null>
   setVault(v: VaultRecord): Promise<void>
+  /** The unlocked note key, kept on this device when the owner chose "remember" (non-extractable). */
+  getDeviceKey(): Promise<{ email: string; key: CryptoKey } | null>
+  setDeviceKey(v: { email: string; key: CryptoKey } | null): Promise<void>
   allNotes(): Promise<EncryptedNote[]>
   putNotes(rows: EncryptedNote[]): Promise<void>
   deleteNotes(ids: string[]): Promise<void>
@@ -95,6 +98,10 @@ export function createLocalStore(name = 'noteflare'): LocalStore {
       }),
     getVault: () => run(null, async (d) => ((await d.get('kv', 'vault')) as VaultRecord | undefined) ?? null),
     setVault: (v) => run(undefined, async (d) => void (await d.put('kv', v, 'vault'))),
+    getDeviceKey: () =>
+      run(null, async (d) => ((await d.get('kv', 'deviceKey')) as { email: string; key: CryptoKey } | undefined) ?? null),
+    setDeviceKey: (v) =>
+      run(undefined, async (d) => void (v ? await d.put('kv', v, 'deviceKey') : await d.delete('kv', 'deviceKey'))),
     allNotes: () => run([], (d) => d.getAll('notes')),
     putNotes: (rows) =>
       run(undefined, async (d) => {

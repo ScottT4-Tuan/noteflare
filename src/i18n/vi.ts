@@ -414,4 +414,9 @@ export const vi: Record<MessageKey, string> = {
   "g.setup2": "Cấu hình OAuth consent screen (External, thêm Gmail của bạn làm test user, rồi bấm Publish app để đăng nhập không bị hết hạn sau 7 ngày).",
   "g.setup3": "Tạo OAuth client ID (Web application) với Authorized redirect URI:",
   "g.setup4": "Thêm client ID và secret thành Worker secret GOOGLE_CLIENT_ID và GOOGLE_CLIENT_SECRET (Cloudflare → Workers → noteflare → Settings → Variables and Secrets), rồi tải lại trang.",
+  "unlock.remember": "Giữ mở khoá trên máy này",
+  "unlock.rememberHint": "Tải lại trang không phải nhập passphrase và không tự khoá. Ai mở được trình duyệt này đều đọc được ghi chú. Bấm Khoá ngay hoặc Đăng xuất để tắt.",
+  "nb.remember": "Giữ mở khoá trên máy này",
+  "nb.rememberOn": "NoteFlare sẽ giữ mở khoá trên máy này",
+  "nb.rememberOff": "Tải lại trang sẽ phải nhập lại passphrase",
 }

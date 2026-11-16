@@ -291,6 +291,9 @@ function SetupFlow() {
 
 class InputError extends Error {}
 
+/** Last choice for "remember on this device" (the key itself lives in IndexedDB). */
+const REMEMBER_KEY = 'noteflare:remember'
+
 function LockedFlow() {
   const { t } = useI18n()
   const { email, unlock, recover, offline } = useVault()
@@ -300,6 +303,13 @@ function LockedFlow() {
   const [next, setNext] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [remember, setRemember] = useState(() => {
+    try {
+      return localStorage.getItem(REMEMBER_KEY) !== '0'
+    } catch {
+      return true
+    }
+  })
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -308,7 +318,12 @@ function LockedFlow() {
     try {
       if (mode === 'pass') {
         if (!pass) throw new InputError(t('unlock.enterPassphrase'))
-        await unlock(pass)
+        try {
+          localStorage.setItem(REMEMBER_KEY, remember ? '1' : '0')
+        } catch {
+          /* preference only */
+        }
+        await unlock(pass, remember)
       } else {
         if (!code.trim()) throw new InputError(t('unlock.enterRecoveryCode'))
         if (next.length < MIN_PASSPHRASE) throw new InputError(t('unlock.newTooShort', { n: MIN_PASSPHRASE }))
@@ -340,7 +355,17 @@ function LockedFlow() {
             value={pass}
             onChange={(e) => setPass(e.target.value)}
           />
-        ) : (
+        ) : null}
+        {mode === 'pass' && (
+          <label className="-mt-1 flex items-start gap-3 text-sm">
+            <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="mt-0.5 size-4 accent-[var(--primary)]" />
+            <span>
+              {t('unlock.remember')}
+              <span className="block text-muted-foreground">{t('unlock.rememberHint')}</span>
+            </span>
+          </label>
+        )}
+        {mode === 'pass' ? null : (
           <>
             <Field
               label={t('unlock.recoveryCode')}

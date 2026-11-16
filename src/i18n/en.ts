@@ -412,6 +412,11 @@ export const en = {
   "g.setup2": "Configure the OAuth consent screen (External, add your Gmail as a test user, then Publish app so sign-in lasts longer than 7 days).",
   "g.setup3": "Create an OAuth client ID (Web application) with this authorized redirect URI:",
   "g.setup4": "Add the client ID and secret as Worker secrets GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET (Cloudflare → Workers → noteflare → Settings → Variables and Secrets), then reload.",
+  "unlock.remember": "Stay unlocked on this device",
+  "unlock.rememberHint": "No passphrase after a reload and no auto-lock. Anyone who can open this browser can read your notes. Lock now or Sign out turns it off.",
+  "nb.remember": "Stay unlocked on this device",
+  "nb.rememberOn": "NoteFlare stays unlocked on this device",
+  "nb.rememberOff": "NoteFlare will ask for the passphrase again after a reload",
 } as const
 
 export type MessageKey = keyof typeof en

@@ -10,6 +10,8 @@ export type { SyncStatus, ImportResult } from './sync/engine'
 
 /** How often to retry while offline or with unsynced changes (the `online` event isn't always reliable). */
 const RETRY_MS = 5_000
+/** How often to pull other devices' changes while NoteFlare is visible. */
+const POLL_MS = 30_000
 
 /**
  * React binding for the offline-first sync engine: notes come from the
@@ -47,6 +49,10 @@ export function useNotes(dek: CryptoKey) {
     const timer = setInterval(() => {
       if (navigator.onLine !== false) engine.retry() // skip while the browser knows it has no network
     }, RETRY_MS)
+    // While the app is on screen, also pick up changes made on other devices.
+    const poll = setInterval(() => {
+      if (document.visibilityState === 'visible' && navigator.onLine !== false) void engine.sync()
+    }, POLL_MS)
 
     window.addEventListener('online', onOnline)
     window.addEventListener('offline', onOffline)
@@ -54,6 +60,7 @@ export function useNotes(dek: CryptoKey) {
     document.addEventListener('visibilitychange', onVisibility)
     return () => {
       clearInterval(timer)
+      clearInterval(poll)
       window.removeEventListener('online', onOnline)
       window.removeEventListener('offline', onOffline)
       window.removeEventListener('beforeunload', onBeforeUnload)

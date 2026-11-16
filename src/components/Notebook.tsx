@@ -48,7 +48,7 @@ function readLayout(): Layout {
 
 export function Notebook({ dek }: { dek: CryptoKey }) {
   const { t, lang, setLang } = useI18n()
-  const { email, lock, signOut, attachments } = useVault()
+  const { email, lock, signOut, attachments, remembered, setRemember } = useVault()
   const attachmentsState = useMemo(() => ({ dek, enabled: attachments }), [dek, attachments])
   // Decrypted images live only while the notebook is unlocked.
   useEffect(() => clearAttachments, [dek])
@@ -519,6 +519,15 @@ export function Notebook({ dek }: { dek: CryptoKey }) {
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setPwOpen(true)}>
                   <KeyRound /> {t('nb.changePassphrase')}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={(e) => {
+                    e.preventDefault()
+                    void setRemember(!remembered).then(() => toast(remembered ? t('nb.rememberOff') : t('nb.rememberOn')))
+                  }}
+                >
+                  <span className="grid size-4 place-items-center">{remembered && <Check />}</span>
+                  {t('nb.remember')}
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setKeysOpen(true)} className="max-md:hidden">
                   <Keyboard /> {t('nb.shortcuts')}
