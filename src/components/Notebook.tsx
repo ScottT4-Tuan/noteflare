@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { flushSync } from 'react-dom'
-import { Archive, Check, Coffee, Download, FileUp, FolderUp, HardDriveDownload, Info, Keyboard, KeyRound, Languages, LayoutGrid, Lock, LogOut, Moon, Plug, Plus, RefreshCw, Rows3, Search, StickyNote, Sun, Trash2, X } from 'lucide-react'
+import { Archive, CalendarDays, Check, Coffee, Download, FileUp, FolderUp, HardDriveDownload, Info, Keyboard, KeyRound, Languages, LayoutGrid, ListChecks, Lock, LogOut, Moon, Plug, Plus, RefreshCw, Rows3, Search, StickyNote, Sun, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
@@ -27,8 +27,10 @@ import { DONATE_URL, takeNewReleases, useUpdates } from '@/lib/updates'
 import { onLaunch, type LaunchAction } from '@/lib/launch'
 import { themeTransition } from '@/lib/motion'
 import { ImportDropzone, type ImportHandle } from './ImportDropzone'
+import { GooglePanel } from './GooglePanel'
 
-type View = { kind: 'notes' } | { kind: 'archive' } | { kind: 'trash' } | { kind: 'label'; label: string }
+type View = { kind: 'notes' } | { kind: 'archive' } | { kind: 'trash' } | { kind: 'label'; label: string } | { kind: 'calendar' } | { kind: 'tasks' }
+const isGoogleView = (v: View): v is { kind: 'calendar' } | { kind: 'tasks' } => v.kind === 'calendar' || v.kind === 'tasks'
 
 const byPosition = (a: Note, b: Note) => b.position - a.position
 const sameView = (a: View, b: View) => a.kind === b.kind && (a.kind !== 'label' || a.label === (b as typeof a).label)
@@ -150,6 +152,7 @@ export function Notebook({ dek }: { dek: CryptoKey }) {
           case 'archive': return !n.trashedAt && n.archived
           case 'trash': return !!n.trashedAt
           case 'label': return !n.trashedAt && n.labels.includes(view.label)
+          default: return false
         }
       })
       .filter((n) => !q || `${n.title}\n${n.body}\n${n.labels.join(' ')}`.toLocaleLowerCase().includes(q))
@@ -171,6 +174,13 @@ export function Notebook({ dek }: { dek: CryptoKey }) {
     const n = emptyNote()
     if (view.kind === 'label') n.labels = [view.label]
     if (view.kind === 'archive') n.archived = true
+    transition(() => setEditing(n))
+  }
+
+  /** A note made from a Google event or task: saved at once, then opened for editing. */
+  const noteFrom = (title: string, body: string) => {
+    const n = { ...emptyNote(), title: title.slice(0, 300), body }
+    upsert(n)
     transition(() => setEditing(n))
   }
 
@@ -559,6 +569,8 @@ export function Notebook({ dek }: { dek: CryptoKey }) {
           </ul>
           </div>
           <ul className="flex shrink-0 gap-1 sm:gap-2">
+            <Chip active={view.kind === 'calendar'} onClick={() => go({ kind: 'calendar' })} icon={<CalendarDays />} label={t('g.calendar')} />
+            <Chip active={view.kind === 'tasks'} onClick={() => go({ kind: 'tasks' })} icon={<ListChecks />} label={t('g.tasks')} />
             <Chip active={view.kind === 'archive'} onClick={() => go({ kind: 'archive' })} count={counts.archive} icon={<Archive />} label={t('nb.archive')} />
             <Chip active={view.kind === 'trash'} onClick={() => go({ kind: 'trash' })} count={counts.trash} icon={<Trash2 />} label={t('nb.trash')} />
           </ul>
@@ -574,13 +586,15 @@ export function Notebook({ dek }: { dek: CryptoKey }) {
             </Button>
           </div>
         )}
-        {appliedQuery.trim() && visible.length > 0 && (
+        {!isGoogleView(view) && appliedQuery.trim() && visible.length > 0 && (
           <p key={visible.length} role="status" className="mb-5 px-1 text-sm text-muted-foreground animate-in fade-in-0 duration-200">
             {visible.length === 1 ? t('nb.resultOne') : t('nb.results', { n: visible.length })}
           </p>
         )}
 
-        {store.loading ? (
+        {isGoogleView(view) ? (
+          <GooglePanel kind={view.kind} query={appliedQuery} onMakeNote={noteFrom} />
+        ) : store.loading ? (
           <Skeleton label={t('nb.decryptingNotes')} />
         ) : !visible.length ? (
           <Empty view={view} query={appliedQuery} onNew={newNote} />
@@ -604,7 +618,7 @@ export function Notebook({ dek }: { dek: CryptoKey }) {
         )}
       </main>
 
-      {view.kind !== 'trash' && (
+      {view.kind !== 'trash' && !isGoogleView(view) && (
         <button
           type="button"
           onClick={newNote}

@@ -5,6 +5,7 @@ import { d1Settings, isUnset, needsSetup, resolveAccess, runSetup, SetupError, T
 import { generateToken, hashToken, toApiToken, tokenPrefix, verifyToken, type TokenRow } from './tokens'
 import { openApiSpec } from './openapi'
 import { versionInfo, type UpdateEnv } from './updates'
+import { google, type GoogleEnv } from './google'
 import {
   BATCH_MAX_BYTES,
   BATCH_MAX_NOTES,
@@ -21,7 +22,7 @@ import {
   type VaultRecord,
 } from '../shared/types'
 
-interface Env extends AccessEnv, UpdateEnv {
+interface Env extends AccessEnv, UpdateEnv, GoogleEnv {
   DB: D1Database
   ASSETS: Fetcher
   /** Optional R2 bucket for encrypted image attachments. Without it the feature is off. */
@@ -409,6 +410,10 @@ api.delete('/tokens/:id', sessionOnly, async (c) => {
     .run()
   return res.meta.changes ? c.body(null, 204) : c.json({ error: 'not_found' }, 404)
 })
+
+// ---------- Google Calendar & Tasks (see worker/google.ts) ----------
+
+api.route('/google', google)
 
 // ---------- App ----------
 
